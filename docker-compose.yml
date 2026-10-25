@@ -1,0 +1,66 @@
+# EV Battery Digital Twin — full stack
+#
+# Start:  docker compose up -d
+# Stop:   docker compose down
+#
+# Mosquitto  1883 (ESP32, Python)  +  9001 (browsers, WebSockets)
+# InfluxDB   8086
+# Grafana    3000
+
+services:
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: battery-mqtt
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+
+  influxdb:
+    image: influxdb:2.7
+    container_name: battery-influx
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    volumes:
+      - ./influx/data:/var/lib/influxdb2
+      - ./influx/config:/etc/influxdb2
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: battery123
+      DOCKER_INFLUXDB_INIT_ORG: evbattery
+      DOCKER_INFLUXDB_INIT_BUCKET: telemetry
+      DOCKER_INFLUXDB_INIT_RETENTION: 0
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: battery-dev-token-change-me
+
+  grafana:
+    image: grafana/grafana-oss:11.1.0
+    container_name: battery-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - influxdb
+    volumes:
+      - ./grafana/data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: battery123
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # Lets you embed Grafana panels inside Streamlit via iframe
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # Lets Text panels contain iframes, so the control panel and
+      # simulator can be embedded inside the Grafana dashboard
+      GF_PANELS_DISABLE_SANITIZE_HTML: "true"
+      # Open straight onto mode 1 (Live pack), light "lab bench" theme
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/ev-battery-digital-twin.json
+      GF_USERS_DEFAULT_THEME: light

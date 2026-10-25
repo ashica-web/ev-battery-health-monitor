@@ -1,0 +1,24 @@
+# Grafana datasource provisioning
+#
+# Put this at:  grafana/provisioning/datasources/influxdb.yml
+#
+# Grafana reads this on startup and connects to InfluxDB automatically,
+# so you don't have to configure it through the UI every time the
+# container is recreated.
+
+apiVersion: 1
+
+datasources:
+  - name: InfluxDB
+    uid: influxdb
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    isDefault: true
+    jsonData:
+      version: Flux
+      organization: evbattery
+      defaultBucket: telemetry
+      tlsSkipVerify: true
+    secureJsonData:
+      token: battery-dev-token-change-me

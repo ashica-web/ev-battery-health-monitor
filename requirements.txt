@@ -1,0 +1,9 @@
+paho-mqtt
+influxdb-client
+streamlit
+streamlit-autorefresh
+pandas
+numpy
+scikit-learn
+xgboost
+matplotlib

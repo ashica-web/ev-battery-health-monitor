@@ -1,0 +1,179 @@
+EV BATTERY DIGITAL TWIN  (v7.4 - lab-bench look, modes, timestamps)
+===============================================================
+
+ALREADY SET FOR YOU
+  Cell capacity = 3.7 Ah in twin_engine.py and cell_test_report.py.
+  CHECK YOUR CELL LABEL: if it says something other than 3700 mAh, change
+  "capacity_Ah=3.7" near the top of twin_engine.py and use --rated with
+  cell_test_report.py. (3.7 V on the label is the VOLTAGE, not capacity.)
+
+FIRMWARE (single ESP32)
+  firmware/EV_SINGLE_ESP32/EV_SINGLE_ESP32.ino = YOUR team's single-ESP32
+  sketch (Rev A) with Rev B additions: on-chip AI, demo mode, two-way
+  control (LIMIT / FAN / SYNC), measured-time coulomb counting.
+  Nothing in your sensor code, pins or calculations was removed.
+  firmware/_old_two_board/ = the retired two-ESP32 sketches (reference only).
+
+INSTALL ONCE (Command Prompt, in this folder):
+  python -m pip install xgboost scikit-learn pandas numpy matplotlib paho-mqtt
+
+START:
+  python start_all.py          real hardware
+  python start_all.py sim      simulated pack
+  python start_all.py demo     AI demo - replays NASA battery B0005, which the
+                               AI never saw in training
+
+  The first start trains the AI automatically (10-20 s). To retrain by
+  hand:  python train_health_model.py
+
+OPEN:
+  Grafana            http://localhost:3000
+     APP VIEW (best for the expo):  http://localhost:3000/d/ev-battery-twin?kiosk&theme=light
+       Light "lab bench" look: black numbers, orange = warning, red = fault.
+       Look settings live in dash_style.py; fonts in fonts/ (open licence).
+       hides Grafana's menus. Esc brings them back. F11 = full screen.
+     Three MODES - switch with the big tabs in the header:
+     "1 · Live Digital Twin"  - the real pack, twin, Kalman, control, data log
+     "2 · AI Health Demo"     - the AI story for judges (NASA replay)
+     "3 · What-if Simulator"  - full-screen physics simulator
+  3D model           http://localhost:8504
+  Customer app       http://localhost:8505   (KA-01-AB-1234 / demo123)
+  What-if simulator  http://localhost:8502
+
+
+THE AI LAYER (new)
+------------------
+What it does: estimates battery state of health WITHOUT a capacity test,
+from discharge voltage, cell temperature and cycle count. Explains every
+estimate (SHAP: health points each input cost), projects cycles left
+until 80%, and gives Normal / Warning / Critical.
+
+Health is the model's OUTPUT, never an input. (The old Edge Impulse
+model took health as an input and its labels were health bands, so a
+single if-statement matched it 88% of the time. That is fixed.)
+
+Files
+  health_ai.py            shared logic: model, SHAP, reasons, verdict
+  train_health_model.py   trains + validates; writes the files below
+  health_inference.py     live AI - reads battery/state, writes battery/ai
+  demo_nasa_replay.py     replays an unseen NASA battery for the demo
+  nasa_battery_cycles.csv the NASA training data
+  health_model.pkl        the trained model           (made by training)
+  validation_report.txt   the numbers for your slides (made by training)
+  validation_report.png   AI vs lab on every unseen battery - PUT THIS
+                          ON A SLIDE
+
+Retired: ei_inference.py, scaling.json, model.tflite, demo_ageing.py,
+cycle_history.json. Delete them if you like; nothing uses them now.
+
+
+TESTING YOUR OWN CELLS (the "ground work")
+------------------------------------------
+Goal: check the AI on real used cells against a real capacity test.
+
+Safety first: reject any cell that is swollen, dented, rusted, leaking
+or resting below 2.5 V. Charge only with a proper Li-ion charger, on a
+non-flammable surface, with someone watching. Never heat cells to age
+them faster.
+
+For each cell:
+  1. Charge fully (4.2 V, until charge current falls below ~0.05 C).
+  2. Rest 30 minutes.
+  3. Discharge at about 1 C (2-2.5 A for a 2-2.5 Ah cell) down to 3.0 V
+     with a capacity tester, a temperature probe taped to the cell.
+  4. Write down: capacity (Ah), energy (Wh), average cell temperature.
+       soh         = measured Ah / rated Ah from the cell's label
+       voltage     = Wh / Ah  (that IS the mean discharge voltage)
+       temperature = average of the probe readings
+  5. Add a row to my_cells_template.csv (rename it my_cells.csv).
+     Unknown history? put cycle = 0 and train with --no-cycle.
+
+ON YOUR OWN PACK (the rig)
+  1. python start_all.py   (real mode - the bridge logs everything)
+  2. Full charge, rest 30 min, then discharge at about 1 C until the
+     pack cuts off. Press "Cycle done" in the control app.
+  3. python cell_test_report.py      (add --rated X if not 3.7 Ah)
+     -> measured health vs AI estimate, the reasons, and a PNG.
+     Add --save to keep the result in my_cells.csv.
+  If it prints "outside the training range", the AI is being asked
+  about conditions NASA never tested (e.g. your discharge stops at
+  3.0 V/cell, NASA's went to 2.7 V). Say so - and that is exactly why
+  retraining on your own cells (--extra) and a second dataset matters.
+
+Then:
+  python train_health_model.py --extra my_cells.csv --no-cycle
+
+Every cell is tested by a model that never saw it, and the report shows
+AI estimate vs your measured capacity, cell by cell.
+
+
+THE AI ON THE CHIP (single ESP32, firmware Rev B)
+-------------------------------------------------
+The trained model is converted to C and compiled into the ESP32, so the
+chip estimates health and explains it by itself (no laptop, no cloud).
+Results go to battery/ai_edge and appear on the dashboards as a dashed
+purple line on top of the laptop's orange one.
+
+  1. python train_health_model.py   (also writes the model for the chip:
+       firmware/EV_SINGLE_ESP32/health_model.h - must say
+       "max difference 0.0000" or a tiny number)
+  2. Arduino IDE -> File -> Open -> firmware/EV_SINGLE_ESP32/EV_SINGLE_ESP32.ino
+     (health_model.h must stay in the same folder)
+  3. Set WIFI_SSID / WIFI_PASSWORD / MQTT_HOST at the top (they are
+     placeholders in the repo)
+  4. CHECK ACS712_SENS_V_PER_A against the chip printed on your ACS712:
+       5A = 0.185   20A = 0.100   30A = 0.066 (current value)
+  5. Upload. Serial Monitor (115200) shows at boot:
+       AI model: XGBoost, 300 trees, compiled into this firmware
+       AI self-test: new-cell estimate ~99% in NN us
+  6. Demo: python start_all.py demo  (the ESP32 can stay powered - the
+     replay sends DEMO_ON, the board goes quiet and runs its AI on the
+     replay; Serial prints one "[EDGE AI] cycle ..." line per cycle)
+     On the real pack it prints one line per discharge (5 min or longer).
+
+TWO-WAY CONTROL (twin -> pack)
+------------------------------
+  Commands on battery/cmd/sys:
+    LIMIT:<amps> / LIMIT:OFF   cap the load current
+    FAN:<0-100> / FAN:AUTO     fan override / temperature curve
+    SYNC                       SOC from resting voltage
+    DEMO_ON / DEMO_OFF         sent by the replay and the simulator
+  Automatic: on a RESISTANCE JUMP the twin sends LIMIT:0.5 and FAN:100
+  and logs a TWIN_ACTION event. Clear it with "Clear twin limit" in the
+  control app (port 8503) once the cause is found.
+  Leaving demo mode clears any limit the simulated twin set.
+
+KALMAN FILTER (state estimation, in twin_engine.py)
+---------------------------------------------------
+Every second: PREDICT state of charge from the current, then CORRECT it
+with the measured voltage. Learns internal resistance (R0) as it goes.
+  * fixes coulomb-counting drift and a wrong starting SOC
+  * reports its own uncertainty (SOC 63% +/- 0.4%)
+  * keeps the physics twin in sync, so the residual only shows real faults
+  * RESISTANCE JUMP alarm when R0 rises 20% within 5 minutes (needs 10
+    minutes of running first, while it learns the pack)
+
+  python test_kalman.py       proof on a simulated cell -> kalman_test.png
+  python start_all.py fault   rehearse the alarm with no hardware
+
+  IMPORTANT: set capacity_Ah in twin_engine.py (PARAMS) to your cells'
+  rated capacity - the filter's SOC depends on it.
+
+
+TIMESTAMPS
+  Bottom of "1 · Live Digital Twin", row "Data log":
+    Last reading received at / Data age  - is data still arriving?
+    Latest value of every sensor reading  - each with its time
+    AI results log                        - one row per discharge
+    Event log                             - safety cutoffs, resistance
+                                            jumps, twin actions, with times
+  Hover any chart for the exact time of each point. Everything is also in
+  data/battery_YYYY-MM-DD.csv with a timestamp on every row.
+
+DASHBOARDS LOAD THEMSELVES
+  They live in grafana/provisioning/dashboards/. Training rebuilds them
+  so the talking points quote your real validation numbers.
+  Edits made in the Grafana UI revert on restart.
+
+FOLDERS CREATED AUTOMATICALLY (hold your data - don't delete):
+  data/  influx/  mosquitto/  grafana/data/

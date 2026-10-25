@@ -1,0 +1,28 @@
+# Grafana dashboard provisioning
+#
+# Put this at:  grafana/provisioning/dashboards/dashboards.yml
+# and put the dashboard .json files in the SAME folder.
+#
+# Grafana loads them from disk every time it starts, so the dashboards
+# are always the correct version - no more importing by hand, and no
+# more "everything went back to the old one" after recreating the
+# container.
+#
+# Note: because these are provisioned from files, edits made in the
+# Grafana UI are NOT permanent - they revert on restart. To change a
+# dashboard for good, edit the .json file here (or rebuild it with
+# build_dashboard.py / build_demo_dashboard.py).
+
+apiVersion: 1
+
+providers:
+  - name: "battery-dashboards"
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false
